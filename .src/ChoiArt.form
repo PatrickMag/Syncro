@@ -1,0 +1,11 @@
+# Gambas Form File 3.0
+
+{ Form Form
+  MoveScaled(0,0,64,64)
+  { CheckBox1 CheckBox
+    MoveScaled(4,9,27,4)
+  }
+  { CheckBox2 CheckBox
+    MoveScaled(3,16,25,3)
+  }
+}

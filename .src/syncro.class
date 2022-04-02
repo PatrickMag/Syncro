@@ -1,0 +1,539 @@
+' Gambas class file
+
+Public Struct EntBon          ''variables pour les entetes de bl
+  dnbon As Integer
+  numlig As Integer
+  dte As Date
+  totht As Float
+  totttc As Float
+  totmarge As Float
+End Struct
+
+Private $stock As Boolean   ''si maj du stock
+Private $prix As Boolean    ''si maj des prix
+Private $req As String        ''contient la requete passée par le shell
+Private $url As String        ''url du client
+Private $head As String = " --header 'Content-Type: multipart/form-data'"
+Private $api As String        
+Private $chaine As String
+Private $reponse As JSONCollection        ''contient le fichier json sous forme de collection
+
+'elements necessaires au traitement des commandes
+Private Enum id_commande, date_commande, client_commande, livraison_commande, facturation_commande, produit_commande
+Private commande As String[] = ["id", "date_created", "customer_info", "delivery_address", "billing_address", "products"]
+'elements necessaires au traitement des clients 
+Private Enum id_client, pays_client, email_client
+Private client As String[] = ["id", "country", "email"]
+
+Private Enum livraison_nom, livraison_tel, livraison_rue, livraison_ville, livraison_cp, livraison_pays
+Private livraison As String[] = ["name", "phone", "street_address", "city", "postcode", "country"]
+
+Private Enum facturation_nom, facturation_tel, facturation_rue, facturation_ville, facturation_cp, facturation_pays
+Private facturation As String[] = livraison
+'elements necessaires au traitement des produits 
+Private Enum produit_id, produit_ref, produit_nom, produit_qte, produit_pbrut, produit_remise, produit_pnet, produit_tva
+Private produit As String[] = ["id", "reference", "name", "quantity", "initial_price", "discount_percentage", "final_price", "tax_rate"]
+
+'elements necessaires au traitement des articles
+Private Enum article_id, article_ref, article_prix, article_stock, article_image, article_lib, article_Sprix, article_Sprix_valeur
+Private article As String[] = ["id", "reference", "price", "stock_total_quantity", "image", "name", "prices", "price_value"]
+ 
+'tableau du fichier csv à importer
+Private Enum ref, lib, img, prix, stock
+
+Public Sub _new()
+
+  $url = "--url '" & utils.site 
+  
+End
+
+Public Sub test() As Boolean      ''test la connection
+
+  $api = "/api/?key=" & utils.clef & "'"
+  $req = "curl --request GET " & $url & $api & $head
+  Shell $req Wait To $chaine 
+  If $chaine Match "succes" Then Return False Else Return True 
+
+End
+
+Public Sub import(import As Label) As Boolean       ''importe le fichier et le met dans $reponse
+
+  import.Text = "Début de l'importation"
+  $api = "/api/orders/filter/{" & commande[id_commande] & "}/{superior}/{" & utils.numero & "}/?key=" & utils.clef & "'"
+  $req = "curl --request GET " & $url & $api & $head
+  Shell $req Wait To $chaine 
+  If $chaine = "[]" Then
+    import.Text = "Rien à importer"
+    Application.Busy = 0
+    Return True
+  Endif
+  $reponse = JSON.Decode($chaine, True)
+  import.Text = "Import : OK"
+  Application.Busy = 0
+ 
+  Wait 0.001
+  Return False
+  
+  Catch
+    Message.Error(Error.Text & " " & Error.Where)
+    import.Text = "Import : KO"
+    Application.Busy = 0
+    Return True
+    
+End
+
+Public Sub TestArt(article As TextArea) As Boolean      ''test l'existence des articles et les taux de tva
+
+  Dim res As Result
+  Dim com, prod As JSONCollection
+  
+  For Each com In $reponse
+    For Each prod In com[commande[produit_commande]]
+      If Not IsNull(prod[produit[produit_ref]]) Then
+        res = utils.db.Exec("SELECT * FROM Fiches_Art JOIN Fiches_Tvaav ON art_tva = code_tva WHERE art_code = &1", prod[produit[produit_ref]])
+        If res.Available Then
+          If Val(res!taux_tva) <> Val(prod[produit_tva]) Then
+            article.Text &= prod[produit[produit_ref]] & "  " & prod[produit[produit_nom]] & " Taux de TVA différent\n"
+          Endif
+        Else
+          article.Text &= prod[produit[produit_ref]] & "  " & prod[produit[produit_nom]] & " innexistant\n"
+        Endif
+      Endif
+    Next
+  Next
+  Application.Busy = 0
+  If article.Text Then Return True
+  Return False
+
+End
+
+Public Sub integration(maj As Label) As Boolean       ''integration de $reponse dans le fichier des bl
+
+  Dim res, rescli, rescpt As Result
+  Dim com, prod As Collection
+  Dim respar As Result
+  Dim dnbon, dncli As Integer
+  Dim total As EntBon
+  Dim dt As New String[]        ''date de commande aaaa-mm-jj
+  Dim ncli, dncom As String
+  
+  utils.db.Begin
+  respar = utils.db.Edit("Fiches_Parametres", "ind='0'")
+  If Not respar.Available Then Error.Raise("Il n'y a pas de fiche paramètre")
+  dnbon = Val(respar!dnbon) 
+  dncli = respar!dnc
+  
+  For Each com In $reponse
+    dncom = com[commande[id_commande]]
+    'on regarde si le client existe, si non on le crée - c'est le mail la clée - En 1 dans la fiche client en 2 dans le fichier des mails client
+    rescli = utils.db.Edit("Fiches_Cli", "cli_email=&1", com[commande[client_commande]][client[email_client]])
+    If Not rescli.Available Then
+      res = utils.db.Exec("SELECT * FROM Mails_Cli WHERE mail=&1", com[commande[client_commande]][client[email_client]])
+      If res.Available Then
+        rescli = utils.db.Edit("Fiches_Cli", "cli_email=&1", res!code)
+      Endif
+    Endif
+    If Not rescli.Available Then
+      rescli = utils.db.Create("Fiches_Cli")
+      rescpt = utils.db.Create("Fiches_Comptes")
+      dncli += 1
+      rescli!cli_code = Str(dncli)
+      rescli!cli_email = com[commande[client_commande]][client[email_client]]
+      rescpt!compte_cc = rescli!cli_code
+      res = utils.db.Exec("SELECT * FROM Fiches_Cli WHERE cli_code = &1", rescli!cli_code)
+      If res.Available Then Error.Raise("Erreur de création client : " & rescli!cli_code & " existe déjà")
+      res = utils.db.Exec("SELECT * FROM Fiches_Comptes WHERE compte_cc LIKE '411%' AND coll='1'")
+      If Not res.Available Then Error.Raise("Il n'y a pas de compte collectif pour les clients")
+      rescli!cli_collectif = res!compte_cc
+      rescpt!coll_cc = res!compte_cc
+      rescpt!coll = True
+      rescpt!solde = 0
+    Else
+      rescpt = utils.db.Edit("Fiches_Comptes", "compte_cc = &1", rescli!cli_code)
+      If Not rescpt.Available Then Error.Raise("Le code comptable du client : " & rescli!cli_code & " n'existe pas\nCréation impossible")
+    Endif
+    ncli = rescli!cli_code
+    AffectClient(rescli, rescpt, com)
+    'on prepare le nouveau bon
+    dnbon += 1
+    total = New EntBon
+    dt = Split(com[commande[date_commande]], "-")
+    total.dte = Date(dt[0], Val(dt[1]), Val(Left(dt[2], 2)))
+    total.dnbon = dnbon
+    For Each prod In com[commande[produit_commande]]
+      If Not IsNull(prod[produit[produit_ref]]) Then
+        total = AffectLigbl(prod[produit[produit_ref]], prod, total)
+      Else
+        total = AffectLigbl(utils.transpor, prod, total)
+      Endif
+    Next
+    AffectEntBl(ncli, com, total)
+  Next
+  'maj des parametres
+  respar!dnbon = Format(dnbon, "000000")
+  respar!dnc = dncli 
+  respar.Update
+  Settings["/Num"] = dncom
+  utils.numero = dncom
+  Settings.Save
+  Settings.Reload
+  maj.Text = "Derniere commande : " & dncom
+  utils.db.Commit
+  
+  Return False
+
+  Catch
+    Message.Error(Error.Text & " " & Error.Where & "\nL'intégration est annulée")
+    utils.db.Rollback
+    Application.Busy = 0
+    Return True 
+End
+
+
+Private Sub AffectClient(rescli As Result, rescpt As Result, com As Collection) 
+  
+  rescli!cli_nom = com[commande[facturation_commande]][facturation[facturation_nom]]
+  rescli!cli_adr1 = com[commande[facturation_commande]][facturation[facturation_rue]]
+  rescli!cli_cd_ptl = com[commande[facturation_commande]][facturation[facturation_cp]]
+  rescli!cli_ville = com[commande[facturation_commande]][facturation[facturation_ville]]
+  rescli!cli_pble = com[commande[facturation_commande]][facturation[facturation_tel]]
+  rescli!cli_pays = com[commande[facturation_commande]][facturation[facturation_pays]]
+  rescli!cli_livraison = True
+  rescli!cli_copie = True
+  rescli!cli_actif = False
+  
+  rescpt!intitule_cc = rescli!cli_nom
+  rescpt!type_cc = "C"
+  rescpt!lettrable = True
+  rescpt.Update
+  rescli.Update
+
+End
+
+Private Sub AffectEntBl(numcli As String, com As Collection, total As EntBon) As Boolean    ''Entete de bl + adresse de livraison
+  
+  Dim res As Result
+  
+  res = utils.db.Create("Fiches_Bl")
+  res!numbl = Format(total.dnbon, "000000")
+  res!type = "B"
+  res!cdclibl = numcli
+  res!tvar = 0
+  res!datebl = total.dte
+  res!marge_art = total.totmarge
+  res!totalht = total.totht
+  res!totalttc = total.totttc
+  res!imp = 0
+  res!ech = res!datebl
+  res!nmclibl = com[commande[facturation_commande]][facturation[facturation_nom]]
+  res!adr1bl = com[commande[facturation_commande]][facturation[facturation_rue]]
+  res!cpbl = com[commande[facturation_commande]][facturation[facturation_cp]]
+  res!villebl = com[commande[facturation_commande]][facturation[facturation_ville]]
+  res!tel = com[commande[livraison_commande]][livraison[livraison_tel]]
+  res!email = com[commande[client_commande]][client[email_client]]
+  res.Update
+  
+  If com[commande[livraison_commande]][livraison[livraison_nom]] Then
+    res = utils.db.Create("Fiches_AdrlivBL")
+    res!numbl = Format(total.dnbon, "000000")
+    Try res!nom = com[commande[livraison_commande]][livraison[livraison_nom]]
+    Try res!adr1 = com[commande[livraison_commande]][livraison[livraison_rue]]
+    Try res!cp = com[commande[livraison_commande]][livraison[livraison_cp]]
+    Try res!ville = com[commande[livraison_commande]][livraison[livraison_ville]]
+    res.Update
+  Endif
+  
+  Return False
+  
+End
+
+Private Function AffectLigbl(art As String, prod As Collection, total As EntBon) As EntBon      ''ligne de bl
+  
+
+  Dim ht, ttc, tva As Float
+  Dim res, resart As Result
+  Dim bck As String
+  Dim marge As Float
+  
+  resart = utils.db.Exec("SELECT * FROM Fiches_Art JOIN Fiches_Tvaav ON art_tva = code_tva WHERE art_code = &1", art)
+  res = utils.db.Create("Fiches_Ligbl")
+  total.numlig += 1
+  res!num_ligbl = Format(total.dnbon, "000000")
+  res!numlig_ligbl = Format(total.numlig, "0000")
+  res!code_ligbl = art
+  res!libel_ligbl = Left(prod[produit[produit_nom]], 50)
+  res!fam_ligbl = resart!art_fam
+  res!pu_ligbl = utils.CDec(resart!art_nbd, prod[produit[produit_pnet]])
+  res!dec_ligbl = resart!art_dec
+  res!qte_ligbl = Utils.CDec(resart!art_dec, prod[produit[produit_qte]])
+  ht = CFloat(prod[produit[produit_pnet]]) * Val(res!qte_ligbl)
+  res!brut_ligbl = Format(ht, "0.00")
+  res!rem_ligbl = "0,00"
+  res!netht_ligbl = res!brut_ligbl
+  res!tx_ligbl = resart!art_tva
+  tva = CFloat(resart!taux_tva) / 100
+  ttc = ht * (1 + tva)
+  res!nettc_ligbl = Format(ttc, "0.00")
+  res!typel_ligbl = "A"
+  res!block_ligbl = res!numlig_ligbl & art & Round(Rnd(1000, 9999))
+  bck = res!block_ligbl
+  marge = Val(res!netht_ligbl) - (Val(res!qte_ligbl) * resart!art_pmp)
+  res!mrgart_ligbl = marge
+  res!four_ligbl = resart!art_four
+  Try res!mtx_ligfac = resart!taux_tva    'comptabilité 3.69
+  Try res!dte_ligbl = total.dte
+  'maj du stock
+  If resart!art_stocke Then 
+    resart = utils.db.Edit("Fiches_Art", "art_code=&1", art)
+    resart!art_qte -= Val(res!qte_ligbl)
+  Endif
+  total.totht += Val(res!netht_ligbl)
+  total.totttc += Val(res!nettc_ligbl)
+  total.totmarge += marge
+  res.Update
+  
+  'cas de commentaire sur article
+  If resart!art_impcar Then
+    res = utils.db.Create("Fiches_Ligbl")
+    res!num_ligbl = Format(total.dnbon, "000000")
+    total.numlig += 1
+    res!numlig_ligbl = Format(total.numlig, "0000")
+    res!typel_ligbl = "R"
+    res!com_ligbl = resart!art_crst
+    res!block_ligbl = bck
+    res.Update
+  Endif
+  
+  'cas des ecos taxes
+  If resart!art_ect Or resart!art_ect2 Or resart!art_cpp Then
+    res = utils.db.Create("Fiches_Ligbl")
+    res!num_ligbl = Format(total.dnbon, "000000")
+    total.numlig += 1
+    res!numlig_ligbl = Format(total.numlig, "0000")
+    res!code_ligbl = art
+    res!block_ligbl = bck
+    res!tx_ligbl = resart!art_tva
+    If resart!art_ect Then
+      ht = resart!art_eco
+      res!typel_ligbl = "E"
+      res!libel_ligbl = "Eco-participation DEE"
+    Endif
+    If resart!art_ect2 Then
+      ht = resart!art_eco2
+      res!typel_ligbl = "D"
+      res!libel_ligbl = "Eco-participation DEA"
+    Endif
+    If resart!art_cpp Then
+      ht = resart!art_copp
+      res!typel_ligbl = "P"
+      res!libel_ligbl = "Taxe copie privée"
+    Endif
+    ht = ht * CFloat(prod[produit[produit_qte]])
+    res!brut_ligbl = Format(ht, "0.00")
+    res!rem_ligbl = "0,00"
+    res!netht_ligbl = res!brut_ligbl
+    res!tx_ligbl = resart!art_tva
+    ttc = ht * (1 + tva)
+    res!nettc_ligbl = Format(ttc, "0.00")
+    Try res!mtx_ligfac = (tva * 100)
+    res.Update
+  Endif
+  
+  If resart!art_stocke Then resart.Update
+  
+  Return total
+  
+End
+
+
+Public Sub VerifArt(prog As ProgressBar, Optional lst As Boolean = False) As Boolean    ''création d'un fichier csv contenant la liste total des produits ou la liste des produits non connus par laurux 
+
+  Dim reponse, art As JSONCollection
+  Dim hfile As File
+  Dim res As Result
+  Dim i As Integer 
+  
+  $api = "/api/products?key=" & utils.clef & "'"
+  $req = "curl --request GET " & $url & $api & $head
+  Shell $req Wait To $chaine 
+  If $chaine = "[]" Then
+    Message.Info("Rien à importer")
+    Application.Busy = 0
+    Return True
+  Endif
+  
+  reponse = New JSONCollection
+  reponse = JSON.Decode($chaine, True)
+  
+  hfile = Open User.Home & "/articles" & Format(Now, "yyyymmdd") & ".csv" For Create
+  If lst Then
+    Print #hfile, "Liste des articles ;;;;"
+  Else
+    Print #hfile, "Contrôle du site vers Laurux ;;;;"
+  Endif
+  Print #hfile, "Références;Libelle;Images;Prix;Stock" 
+  For Each art In reponse
+    i += 1
+    prog.Value = i / reponse.Count
+    Wait 0.001
+    If lst Then
+      Print #hfile, art[article[article_ref]] & ";" & art[article[article_lib]] & ";" & art[article[article_image]] & ";" & art[article[article_prix]] & ";" & art[article[article_stock]]
+    Else
+      res = utils.db.Exec("SELECT * FROM Fiches_Art WHERE art_code = &1", art[article[article_ref]])
+      If Not res.Available Then
+        Print #hfile, art[article[article_ref]] & ";" & art[article[article_lib]] & ";" & art[article[article_image]] & ";" & art[article[article_prix]] & ";" & art[article[article_stock]]
+      Endif
+    Endif
+  Next
+  'Innutile trop d'articles concernés
+  ' res = utils.db.Exec("SELECT * FROM Fiches_Art")
+  ' If res.Available Then
+  '    Print #hfile, "Contrôle de Laurux vers le site ;;;;"
+  '   Repeat
+  '     prog.Value = res.Index / res.Max
+  '     $api = "/api/products/filter/{reference}/{equal}/" & res!art_code & "?key=" & utils.clef & "'"
+  '     $req = "curl --request GET " & $url & $api & $head
+  '     Shell $req Wait To $chaine 
+  '     If $chaine = "[]" Then
+  '       Print #hfile, res!art_code & ";" & res!art_design & ";;;;"
+  '     Endif
+  '   Until res.MoveNext()
+  ' Endif
+  hfile.Close
+  Application.Busy = 0
+  Message.Info("Le fichier : " & User.Home & "/articles" & Format(Now, "yyyymmdd") & ".csv a été créé avec succès")
+
+End
+
+Public Sub maj(stk As Boolean, prx As Boolean, prog As ProgressBar, txt As TextArea) As Boolean   ''maj des prix et/ou du stock sur le site
+
+  Dim res As Result
+  Dim reponse, art, Nart As JSONCollection
+  Dim prix As Float
+  Dim fic, rp, sch As String
+  Dim i As Integer
+  
+  If Not stk And Not prx Then 
+    Application.Busy = 0
+    Return True
+  Endif
+  $api = "/api/products?key=" & utils.clef & "'"
+  $req = "curl --request GET " & $url & $api & $head
+  Shell $req Wait To $chaine 
+  If $chaine = "[]" Then
+    Message.Info("Rien à importer")
+    Application.Busy = 0
+    Return True
+  Endif
+  reponse = New JSONCollection
+  reponse = JSON.Decode($chaine, True)
+  
+  For Each art In reponse
+    i += 1
+    prog.Value = i / reponse.Count
+    Wait 0.001
+    res = utils.db.Exec("SELECT * FROM Fiches_Art JOIN Fiches_Tvaav ON art_tva = code_tva WHERE art_code = &1", art[article[article_ref]])
+    If res.Available Then
+      If stk And res!art_stocke Then
+        sch = Str(res!art_qte)
+        sch = Replace(sch, ",", ".")
+        art[article[article_stock]] = sch
+      Endif
+      If prx Then
+        prix = res!art_pvttc / (1 + (res!taux_tva / 100))
+        sch = Format(prix, "0.000000")
+        sch = Replace(sch, ",", ".")
+        art[article[article_prix]] = sch
+        art[article[article_Sprix]]["1-1"][article[article_Sprix_valeur]] = sch
+      Endif
+      fic = JSON.Encode(art)
+      $req = "curl --request PUT --header 'Content-Type: application/json' -d '" & fic & "'" & $url & $api
+      'Shell req Wait To rp
+    Else
+      txt.Text &= "Atricle n° : " & art[article[article_ref]] & " innexistant\n"
+    Endif
+  Next
+  
+  Application.Busy = 0
+  Return False
+
+End
+
+Public Sub ImpCsv(h As Integer, w As Integer, prog As ProgressBar, txt As TextArea)
+
+  Dim flc As FileChooser
+  Dim win As New Window As "win"
+  Dim r As Integer
+  
+  flc = New FileChooser(win) As "Filechooser"
+  win.Height = h
+  win.Width = w / 1.4
+  win.Text = "Sélection du fichier à importer"
+  flc.Width = win.Width
+  flc.Height = win.Height
+  flc.Filter = ["*.csv", "Fichiers texte"]
+  flc.ReadOnly = True
+  flc.Multi = False
+  flc.ShowButton = True
+  flc.Tag = win
+  win.Tag = [prog, txt]
+  r = win.ShowModal()
+  
+
+End
+
+Public Sub FileChooser_Activate()
+
+  Dim flc As FileChooser = Last
+  Dim prog As ProgressBar = flc.Tag.tag[0]
+  Dim txt As TextArea = flc.Tag.tag[1]
+  Dim hfile As File
+  Dim ligne As String[]
+  Dim fic, lg, rp As String
+  Dim reponse, art As JSONCollection
+  Dim p As Float
+  
+  Application.Busy = 1
+  hfile = Open flc.Value For Read
+  
+  While Not Eof(hfile)
+    Line Input #hfile, lg
+    ligne = Split(lg, ";")
+    $api = "/api/products/filter/{reference}/{equal}/{" & ligne[ref] & "}?key=" & utils.clef & "'"
+    $req = "curl --request GET " & $url & $api & $head
+    Shell $req Wait To fic
+    If fic = "[]" Then
+      txt.Text &= "Article : " & ligne[ref] & " Innexistant\n"
+      Continue
+    Endif
+    reponse = New JSONCollection
+    reponse = JSON.Decode(fic, True)
+    For Each art In reponse
+      If ligne[stock] Or ligne[prix] Then
+        If ligne[stock] Then
+          art[article[article_stock]] = Replace(ligne[stock], ",", ".")
+        Endif
+        If ligne[prix] Then
+          ligne[prix] = Replace(ligne[prix], ",", ".")
+          p = CFloat(ligne[prix])
+          art[article[article_prix]] = Format(p, "0.000000")
+          art[article[article_prix]] = Replace(art[article[article_prix]], ",", ".")
+          art[article[article_Sprix]]["1-1"][article[article_Sprix_valeur]] = art[article[article_prix]]
+        Endif
+        fic = JSON.Encode(art)
+        $req = "curl --request PUT --header 'Content-Type: application/json' -d '" & fic & "'" & $url & $api
+        'Shell req Wait To rp
+      Endif
+    Next
+  Wend
+
+  Last.Tag.Close(0)
+  Application.Busy = 0
+  
+End
+
+Public Sub FileChooser_Cancel()
+
+  Last.Tag.Close(0)
+
+End

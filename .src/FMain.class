@@ -1,0 +1,194 @@
+' Gambas class file
+
+
+
+Public Sub _new()
+
+  Utils.Connect()
+  Me.Raise
+  Me.Text &= Utils.Societe
+  Utils.numero = Settings["/Num"]
+  Utils.clef = hexdblKey.Crypt("de", Settings["/Cle"], "Laurux")
+  Utils.site = Settings["/Site"]
+  Utils.transpor = Settings["/Trans"]
+  If IsNull(Utils.clef) Then
+    cle_Click
+  Endif
+  If IsNull(Utils.transpor) Then
+    Transport_Click()
+  Endif
+  If IsNull(Utils.numero) Then
+    ncom_Click
+  Endif
+  If IsNull(Utils.site) Then
+    siteint_Click()
+  Endif
+  
+End
+
+Public Sub cle_Click()
+  
+  Repeat
+    Utils.clef = InputBox("Entrez la clef : ", "Clef API Régicom", Utils.clef)
+  Until Utils.clef
+  Settings["/Cle"] = hexdblKey.crypt("en", Utils.clef, "Laurux")
+  Settings.Save
+  
+End
+
+Public Sub ncom_Click()
+
+  Repeat
+    Utils.numero = InputBox("Entrez le dernier numéro importé : ", "Numéro de commande", Utils.numero)
+  Until Utils.numero
+  Settings["/Num"] = Utils.numero
+  Settings.Save
+  
+End
+
+Public Sub Transport_Click()
+
+  Dim res As Result
+  
+  Repeat
+    Utils.transpor = InputBox("Entrez le code de l'article transport : ", "Transport", Utils.transpor)
+  Until Utils.transpor
+  res = db.Exec("SELECT * FROM Fiches_Art WHERE art_code = &1", Utils.transpor)
+  If Not res.Available Then
+    Message.Error("Article innexistant", "OK")
+    Transport_Click()
+    Return
+  Endif
+  Settings["/Trans"] = Utils.transpor
+  Settings.Save
+
+End
+
+Public Sub siteint_Click()
+
+  Repeat
+    Utils.site = InputBox("Entrez le nom du site (ex : https://www.exemple.com) : ", "Site internet", Utils.site)
+  Until Utils.site
+  Settings["/Site"] = Utils.site
+  Settings.Save
+
+End
+
+Public Sub Quit_Click()
+
+  Me.Close
+
+End
+
+Public Sub Button1_Click()
+
+  Dim sync As Syncro
+  
+  mab()
+  Message.Info("Les fichiers nécessaires à l'importaion des écritures vont êtres bloqués.\nVeuillez fermer Laurux sur tous les postes.", "OK")
+  Wait 0.001
+  Utils.db.Exec("LOCK TABLES Fiches_Art WRITE, Fiches_Cli WRITE, Fiches_Bl WRITE, Fiches_Ligbl WRITE, Fiches_Parametres WRITE, Fiches_Comptes WRITE, Fiches_Tvaav WRITE")
+  ProgressBar1.Value = 0
+  sync = New Syncro
+  If TestCom(sync) Then Return 
+  ProgressBar1.Value = 1 / 3
+  Wait 0.001
+  If sync.import(import) Then Return
+  ProgressBar1.Value = 2 / 3
+  Wait 0.001
+  If sync.TestArt(TextArea1) Then
+    articles.Text = "Vérication articles : KO"
+    Utils.db.Exec("UNLOCK TABLES")
+    Return
+  Else
+    articles.Text = "Vérication articles : OK"
+    Wait 0.001
+  Endif
+  ProgressBar1.Value = 3 / 3
+  Wait 0.001
+  If sync.integration(maj) Then
+    integration.Text = "integration : KO"
+    Utils.db.Exec("UNLOCK TABLES")
+    Return
+  Else
+    integration.Text = "Integration : OK"
+    Wait 0.001
+  Endif
+  
+  utils.db.Exec("UNLOCK TABLES")
+  Application.Busy = 0
+  
+End
+
+Public Sub Vart_Click()
+
+  Dim sync As Syncro
+  
+  mab()
+  sync = New Syncro
+  If TestCom(sync) Then Return
+  sync.VerifArt(ProgressBar1)
+
+End
+
+Public Sub Blst_Click()
+
+  Dim sync As Syncro
+  
+  mab()
+  sync = New Syncro
+  If TestCom(sync) Then Return
+  sync.VerifArt(ProgressBar1, True)
+
+End
+
+Public Sub Bmaj_Click()
+
+  Dim sync As Syncro
+  
+  mab()
+  sync = New Syncro
+  If TestCom(sync) Then Return
+  If sync.maj(stk.Value, prx.Value, ProgressBar1, TextArea1) Then
+    maj.Text = "Mise à jour KO"
+  Endif
+
+End
+
+Public Sub Bimpor_Click()
+
+  Dim sync As New Syncro
+  
+  mab()
+  If TestCom(sync) Then Return
+  Application.Busy = 0
+  sync.ImpCsv(Me.Height, Me.Width, ProgressBar1, TextArea1)
+  
+End
+
+Private Function TestCom(sync As Syncro) As Boolean
+  
+  Application.Busy = 1
+  If sync.test() Then 
+    test.Text = "Communication : KO"
+    utils.db.Exec("UNLOCK TABLES")
+    Application.Busy = 0
+    Return True
+  Endif
+  test.Text = "Communication : OK"
+  Wait 0.001
+  Return False
+  
+End
+
+Private Sub mab()
+  
+  TextArea1.Clear
+  ProgressBar1.Value = 0 / 3
+  test.Text = ""
+  articles.Text = ""
+  integration.Text = ""
+  maj.Text = ""
+  Wait 0.001
+  
+End

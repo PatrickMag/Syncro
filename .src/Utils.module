@@ -1,0 +1,48 @@
+' Gambas module file
+
+Public db As New Connection
+Public parametre As Settings
+Public societe As String
+Public clef As String
+Public numero As String
+Public site As String
+Public transpor As String
+
+Public Sub Connect()        ''connection de la bd
+  
+  parametre = New Settings(User.Home & "/.config/gambas3/Laurux.conf")
+  Try Societe = parametre["/Soc"]
+  If IsNull(Societe) Then Societe = "01"
+  db.Host = parametre["/dbase/hoste"]
+  db.Login = parametre["/dbase/Login"]
+  db.Type = "MySQL" 
+  db.Name = parametre["/dbase/Prefixe"] & parametre["/dbase/Name"]
+  db.Password = hexdblKey.Crypt("de", parametre["/dbase/Password"], "Laurux")
+  db.Port = parametre["/dbase/Port"]
+  
+  db.Open
+    
+End
+
+Public Function CDec(nbdec As String, Decm As String) As String
+
+  If nbdec = "0" Then
+    Try Decm = Format$(Val(Utils.cpoint(Decm)), "0")
+  Else
+    If nbdec = "2" Then
+      Try decm = Format$(Val(Utils.cpoint(decm)), "0.00")
+    Else
+      If nbdec = "3" Then
+        Try Decm = Format$(Val(Utils.cpoint(Decm)), "0.000")
+      Endif
+    Endif
+  Endif
+  Return Decm
+
+End
+
+Public Function cpoint(mtt As String) As String
+
+  Return (Replace$(LTrim$(mtt), ".", ","))
+
+End

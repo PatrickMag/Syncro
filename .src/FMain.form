@@ -1,0 +1,92 @@
+# Gambas Form File 3.0
+
+{ Form Form
+  MoveScaled(0,0,115,52)
+  Text = ("Syncronisation site/Laurux")
+  Icon = Picture["icon:/22/connect"]
+  { Fichier Menu
+    Text = ("Fichier")
+    { cle Menu
+      Text = ("Entrez la clef")
+    }
+    { ncom Menu
+      Text = ("Derniére commande importée")
+    }
+    { Transport Menu
+      Text = ("Code de l'article transport")
+    }
+    { siteint Menu
+      Text = ("Site")
+    }
+    { Quit Menu
+      Text = ("Quitter")
+    }
+  }
+  { Button1 Button
+    MoveScaled(2,25,50,5)
+    Text = ("Lancer la syncro")
+  }
+  { Panel1 Panel
+    MoveScaled(54,1,59,47)
+    Background = &HFFFFDF&
+    Border = Border.Plain
+    { test Label
+      MoveScaled(1,0,56.6667,3)
+      Border = Border.Plain
+    }
+    { import Label
+      MoveScaled(1,3,56.6667,3)
+      Border = Border.Plain
+    }
+    { articles Label
+      MoveScaled(1,6,56.6667,3)
+      Border = Border.Plain
+    }
+    { integration Label
+      MoveScaled(1,9,56.6667,3)
+      Border = Border.Plain
+    }
+    { TextArea1 TextArea
+      MoveScaled(1,16,57,30)
+    }
+    { maj Label
+      MoveScaled(1,12,56.6667,3)
+      Border = Border.Plain
+    }
+  }
+  { ProgressBar1 ProgressBar
+    MoveScaled(5,2,42,4)
+  }
+  { Vart Button
+    MoveScaled(2,31,50,5)
+    Text = ("Vérification articles")
+  }
+  { Panel2 Panel
+    MoveScaled(2,8,50,13)
+    Background = &HDFF7FF&
+    Border = Border.Plain
+    { stk CheckBox
+      MoveScaled(2,0,36,4)
+      Expand = True
+      Text = ("Mise à jour des stocks")
+    }
+    { prx CheckBox
+      MoveScaled(2,4,40,4)
+      Expand = True
+      Text = ("Mise à jour des prix")
+    }
+    { Bmaj Button
+      MoveScaled(0,8,50,5)
+      Background = &HDFF7FF&
+      Text = ("Mises à jours")
+    }
+  }
+  { Blst Button
+    MoveScaled(2,37,50,5)
+    Text = ("Liste des articles")
+  }
+  { Bimpor Button
+    MoveScaled(2,43,50,5)
+    Text = ("Import csv")
+  }
+}
