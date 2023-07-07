@@ -1,6 +1,9 @@
 ' Gambas class file
 
 
+Public imptimer As New Timer As "timer"     ''Timer pour importer les factures
+
+Private $it As Boolean = True                 ''Test si le timer est en fonction pour ne pas passer 2 fois
 
 Public Sub _new()
 
@@ -11,6 +14,7 @@ Public Sub _new()
   Utils.clef = hexdblKey.Crypt("de", Settings["/Cle"], "Laurux")
   Utils.site = Settings["/Site"]
   Utils.transpor = Settings["/Trans"]
+  If Settings["/Temps"] Then utils.temps = Settings["/Temps"] Else utils.temps = 0
   If IsNull(Utils.clef) Then
     cle_Click
   Endif
@@ -74,31 +78,70 @@ Public Sub siteint_Click()
 
 End
 
+Public Sub Timer_Click()
+
+  Dim tm As String
+  
+  Repeat
+    tm = InputBox("Durée du timer : ", "Timer", utils.temps)
+    If Not tm Then Return
+  Until Val(tm)
+  Settings["/Temps"] = Val(tm)
+  Settings.Save
+
+End
+
 Public Sub Quit_Click()
 
   Me.Close
 
 End
 
-Public Sub Button1_Click()
+Public Sub bsyncro_Click()
 
   Dim sync As Syncro
+  Dim win As Window
+  Dim pan As Panel
+  Dim lab As Label
   
   mab()
-  Message.Info("Les fichiers nécessaires à l'importaion des écritures vont êtres bloqués.\nVeuillez fermer Laurux sur tous les postes.", "OK")
+  If btimer.Background = Color.Red Then
+    Message.Info("Les fichiers nécessaires à l'importaion des écritures vont êtres bloqués.\nVeuillez fermer Laurux sur tous les postes.", "OK")
+  Endif
+  win = New Window
+  win.h = Me.h / 2
+  win.w = Me.w / 2
+  win.x = Me.y - Me.W
+  win.y = 0
+  win.Arrangement = Arrange.Vertical
+  lab = New Label(win)
+  lab.AutoResize = True
+  lab.Text = "Les fichiers nécessaires à l'importaion des factures vont êtres bloqués."
+  Me.Raise
+  win.Show
+  Music.Load("warning.ogg")
+  If btimer.Background = Color.Green Then Music.Play(3)
   Wait 0.001
   Utils.db.Exec("LOCK TABLES Fiches_Art WRITE, Fiches_Cli WRITE, Fiches_Bl WRITE, Fiches_Ligbl WRITE, Fiches_Parametres WRITE, Fiches_Comptes WRITE, Fiches_Tvaav WRITE")
+  lab = New Label(win)
+  lab.AutoResize = True
+  lab.Text = "Les fichiers sont bloqués."
   ProgressBar1.Value = 0
   sync = New Syncro
   If TestCom(sync) Then Return 
   ProgressBar1.Value = 1 / 3
   Wait 0.001
-  If sync.import(import) Then Return
+  If sync.import(import) Then 
+    Utils.db.Exec("UNLOCK TABLES")
+    win.Delete
+    Return
+  Endif
   ProgressBar1.Value = 2 / 3
   Wait 0.001
   If sync.TestArt(TextArea1) Then
     articles.Text = "Vérication articles : KO"
     Utils.db.Exec("UNLOCK TABLES")
+    win.Delete
     Return
   Else
     articles.Text = "Vérication articles : OK"
@@ -109,6 +152,7 @@ Public Sub Button1_Click()
   If sync.integration(maj) Then
     integration.Text = "integration : KO"
     Utils.db.Exec("UNLOCK TABLES")
+    win.Delete
     Return
   Else
     integration.Text = "Integration : OK"
@@ -116,11 +160,13 @@ Public Sub Button1_Click()
   Endif
   
   utils.db.Exec("UNLOCK TABLES")
+  win.Delete
   Application.Busy = 0
+  $it = True
   
 End
 
-Public Sub Vart_Click()
+Public Sub Vart_Click()       ''Vérification des articles
 
   Dim sync As Syncro
   
@@ -131,7 +177,7 @@ Public Sub Vart_Click()
 
 End
 
-Public Sub Blst_Click()
+Public Sub Blst_Click()     ''Liste des articles
 
   Dim sync As Syncro
   
@@ -168,6 +214,11 @@ End
 
 Private Function TestCom(sync As Syncro) As Boolean
   
+  If btimer.Background = Color.Green And $it Then 
+    test.Text = "Le timer est sur mode automatique : KO"
+    utils.db.Exec("UNLOCK TABLES")
+    Return True
+  Endif
   Application.Busy = 1
   If sync.test() Then 
     test.Text = "Communication : KO"
@@ -179,6 +230,31 @@ Private Function TestCom(sync As Syncro) As Boolean
   Wait 0.001
   Return False
   
+End
+
+Public Sub btimer_Click()
+
+  If btimer.Background = Color.Red Then
+    btimer.Background = Color.Green
+    btimer.Text = "Timer\nOn"
+    imptimer.Delay = utils.temps * 1000
+    imptimer.Enabled = True
+    imptimer.Start
+  Else
+    imptimer.Stop
+    btimer.Background = Color.Red
+    btimer.Text = "Timer\nOff"
+  Endif
+
+End
+
+Public Sub timer_Timer()
+
+  If Not $it Then Return
+
+  $it = False
+  bsyncro_Click()
+
 End
 
 Private Sub mab()

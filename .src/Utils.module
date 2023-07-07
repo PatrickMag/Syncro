@@ -1,19 +1,20 @@
 ' Gambas module file
 
 Public db As New Connection
-Public parametre As Settings
-Public societe As String
-Public clef As String
-Public numero As String
-Public site As String
-Public transpor As String
+Public parametre As Settings            ''Fichier setting
+Public societe As String                 ''N° de la société
+Public clef As String                   ''Clef accés au site
+Public numero As String                 ''Dernier numéro importé
+Public site As String                   ''Adresse du site
+Public transpor As String               ''N° article pour le transport
+Public temps As Integer                ''Durée du timer
 
 Public Sub Connect()        ''connection de la bd
   
   parametre = New Settings(User.Home & "/.config/gambas3/Laurux.conf")
   Try Societe = parametre["/Soc"]
   If IsNull(Societe) Then Societe = "01"
-  db.Host = parametre["/dbase/hoste"]
+  db.Host = parametre["/dbase/Host"]
   db.Login = parametre["/dbase/Login"]
   db.Type = "MySQL" 
   db.Name = parametre["/dbase/Prefixe"] & parametre["/dbase/Name"]

@@ -459,7 +459,7 @@ Public Sub maj(stk As Boolean, prx As Boolean, prog As ProgressBar, txt As TextA
 
 End
 
-Public Sub ImpCsv(h As Integer, w As Integer, prog As ProgressBar, txt As TextArea)
+Public Sub ImpCsv(h As Integer, w As Integer, prog As ProgressBar, txt As TextArea)   ''Importe un fihier csv et le met à jour sur le site
 
   Dim flc As FileChooser
   Dim win As New Window As "win"

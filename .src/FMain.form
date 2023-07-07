@@ -18,11 +18,14 @@
     { siteint Menu
       Text = ("Site")
     }
+    { Timer Menu
+      Text = Shortcut(("Timer"), "T")
+    }
     { Quit Menu
       Text = ("Quitter")
     }
   }
-  { Button1 Button
+  { bsyncro Button
     MoveScaled(2,25,50,5)
     Text = ("Lancer la syncro")
   }
@@ -55,7 +58,7 @@
     }
   }
   { ProgressBar1 ProgressBar
-    MoveScaled(5,2,42,4)
+    MoveScaled(2,2,42,4)
   }
   { Vart Button
     MoveScaled(2,31,50,5)
@@ -87,6 +90,12 @@
   }
   { Bimpor Button
     MoveScaled(2,43,50,5)
+    ToolTip = ("Importe un fichier csv pour mettre à jour\nle site internet")
     Text = ("Import csv")
+  }
+  { btimer Button
+    MoveScaled(45,0,7,7)
+    Background = Color.Red
+    Text = ("Timer\nOff")
   }
 }
